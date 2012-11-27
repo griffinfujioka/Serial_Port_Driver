@@ -69,7 +69,7 @@ int enable_irq(irq_nr) unsigned irq_nr;
 
    
 /************ serial ports initialization ***************/
-char *p = "\n\rSerial Port Ready\n\r\007";
+char *p = "\n\rGriffin's Serial Port Ready\n\r\007";
 
 int sinit()
 {
@@ -98,7 +98,7 @@ int sinit()
       t->ehead =  t->etail = t->e_count = 0;
       t->outhead =t->outtail = 0;
 
-      t->tx_on = 0;
+      t->tx_on = 0;   // Initially tx is off 
 
       // initialize control chars; NOT used in MTX but show how anyway
       t->ison = t->echo = 1;   /* is on and echoing */
@@ -137,7 +137,7 @@ int sinit()
     enable_irq(4-i);  // COM1: IRQ4; COM2: IRQ3
 
     /* show greeting message */
-    //    prints(q);
+    prints(q);
 
     while (*q){
       bputc(t->port, *q);
@@ -148,6 +148,11 @@ int sinit()
          
 //======================== LOWER HALF ROUTINES ===============================
 int s0handler()
+{
+  shandler(0);
+}
+
+int s1handler()
 {
   shandler(0);
 }
@@ -203,8 +208,11 @@ disable_tx(struct stty *t)
 int secho(struct stty *tty, int c)
 {
    /* insert c into ebuf[]; turn on tx interrupt */
+  tty->ebuf[tty->ehead] = c; 
+  tty->ehead++;   // Increment ehead
 }
 
+/* Receive input from serial port */ 
 int do_rx(struct stty *tty)   /* interrupts already disabled */
 { 
   int c;
@@ -215,17 +223,25 @@ int do_rx(struct stty *tty)   /* interrupts already disabled */
   /********* WRITE CODE ***************
    put char into stty[port]'s inbuf[ ]
   *************************************/
-
+   //printf("1\n"); 
+   tty->inbuf[tty->inhead] = c; // Insert into head
+   tty->inhead++;         // Increment head
+   //printf("2\n"); 
   /****** This code segment uses bput() to echo each input char ************
-   It is for YOUR initial testing only. In YOUR serial port driver, MUST use
+   TODO: It is for YOUR initial testing only. In YOUR serial port driver, MUST use
    the echo buffer to echo inputs.
-
-   bputc(tty->port, c);
-   if (c=='\r')
-      bputc(tty->port, '\n');
   ************************************************************************/
-  
+  bputc(tty->port, c);
+  //printf("3\n"); 
+  if (c=='\r')
+  {
+    //printf("3.1\n"); 
+    bputc(tty->port, '\n');
+  }
+      
+  //printf("4\n"); 
   V(&tty->inchars);     /* unblock any process waiting in sgetc() */
+  //printf("5\n"); 
 }      
 
      
@@ -235,22 +251,35 @@ int sgetc(struct stty *tty)
   P(&tty->inchars);   /* wait if no input char yet */
 
   // WRITE CODE TO get a char c from tty->inbuf[ ]
-
+  c = tty->inbuf[tty->intail];  // Get char from inbuf[intail] 
+  tty->intail++; 
   return(c);
 }
 
 int sgetline(int port, char *line)
 {  
+  int i = 0; 
+  char *c; 
    struct stty *tty = &stty[port];
    printf("sgetline from port %d\n", port);
+    
+  // WRITE CODE to get a line from serial port
+   c = sgetc(tty); 
+   while(c != '\n') // Newlines are delimited by '\n'
+   {
+    line[i] = c; 
+    i++; 
+   }
+   printf("returning line: %s\n", line); 
 
-   // WRITE CODE to get a line from serial port
+   
 
    return strlen(line);
 }
 
 
 /******************************************************************/
+/* Transmit output to serial port */ 
 int do_tx(struct stty *tty)
 {
   int c;
@@ -271,6 +300,26 @@ int do_tx(struct stty *tty)
        V(&tty->outroom);
        return;
   ************************************************************/
+  if(tty->ehead == 0)   // Nothing to output 
+  {
+    // Disable tx interrupt
+    disable_tx(tty); 
+    return; 
+  }
+  else if(tty->ehead > 0) // ebuf[] not empty 
+  {
+    // TODO: output a byte from ebuf
+    return; 
+  }
+  else if(tty->outhead > 0) // outbuf[] not empty 
+  {
+    // Output a char from outbuf[]
+    printf("%s\n", tty->outbuf[tty->outhead]); 
+    V(&tty->outroom); 
+    return; 
+  }
+
+  
 }
 
 int sputc(struct stty *tty, int c)
@@ -279,17 +328,28 @@ int sputc(struct stty *tty, int c)
 
     lock();             
     //  WRITE CODE to enter c into outbuf[ ];
+    tty->outbuf[tty->outhead] = c;  // Insert c into outbuf
+    tty->outhead++;   // Increment outhead 
     unlock();
 
     if (!tty->tx_on) 
-       enable_tx(tty);
+       enable_tx(tty);  // Enable tx interecept 
     return(1);
 }
 
 int sputline(int port, char *line)
 {
   struct stty *tty = &stty[port];
+  char *c; 
   //WRITE CODE to output line to serial port
+  c = &line; 
+  while(c != NULL)
+  {
+    tty->outbuf[tty->outhead] = c; 
+    tty->outhead++; 
+    c = &line; 
+  }
+
 }
 
 

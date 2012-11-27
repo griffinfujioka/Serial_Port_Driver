@@ -145,18 +145,34 @@ _s1inth: INTH s1handler
 ! ustack contains    flag,ucs,upc, ax,bx,cx,dx,bp,si,di,es,ds
 ! uSS and uSP are in proc
 _ireturn:                       ! return from INTERRUPTs
-_goUmode:                       ! goYmode(): same as return from INTERRUPT
-        cli
-	mov bx,_running 	! bx -> proc
-        dec INK[bx]
-        cmp INK[bx],#0
-        jg  xkmode
+!_goUmode:                       ! goYmode(): same as return from INTERRUPT
+!        cli
+!	mov bx,_running 	! bx -> proc
+!        dec INK[bx]
+!        cmp INK[bx],#0
+!        jg  xkmode
 
 ! return to Umode, restore ustack (uSS, uSP)m then pop ustack
-        mov ax,USS[bx]
-        mov ss,ax               ! restore SS
-        mov sp,USP[bx]          ! restore SP
-
+!        mov ax,USS[bx]
+!        mov ss,ax               ! restore SS
+!        mov sp,USP[bx]          ! restore SP
+_goUmode:
+        cli
+	mov bx,_running 	! bx -> proc
+        mov cx,USS[bx]
+        mov ss,cx               ! restore uSS
+        mov sp,USP[bx]          ! restore uSP
+  
+	pop ds
+	pop es
+	pop di
+        pop si
+        pop bp
+        pop dx
+        pop cx
+        pop bx
+        pop ax  
+        iret
 xkmode:  
 	pop ds
 	pop es
