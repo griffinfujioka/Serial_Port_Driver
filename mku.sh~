@@ -14,4 +14,5 @@ sleep 1 	# Sleep for a second so fd0 will not be busy and is able to umount
 sudo umount fd0
 
 rm *.o $1
+echo $1 user mode image completed. 
 

@@ -22,7 +22,7 @@ typedef struct proc{
         int    *ksp; 
         int    uss,usp;
         int    inkmode;
-
+	struct proc* parent; 
         int     pid;
         int     ppid;
         int     status;

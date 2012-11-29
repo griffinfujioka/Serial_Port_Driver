@@ -209,7 +209,10 @@ int secho(struct stty *tty, int c)
 {
    /* insert c into ebuf[]; turn on tx interrupt */
   tty->ebuf[tty->ehead] = c; 
-  tty->ehead++;   // Increment ehead
+  tty->ehead %= EBUFLEN;   // Increment ehead
+
+  /* turn on tx interrupt */ 
+  enable_tx(tty); 
 }
 
 /* Receive input from serial port */ 
@@ -220,61 +223,75 @@ int do_rx(struct stty *tty)   /* interrupts already disabled */
 
   printf("port %x interrupt : c=%c\n", tty->port, c);
 
-  /********* WRITE CODE ***************
-   put char into stty[port]'s inbuf[ ]
-  *************************************/
-   //printf("1\n"); 
-   tty->inbuf[tty->inhead] = c; // Insert into head
-   tty->inhead++;         // Increment head
-   //printf("2\n"); 
-  /****** This code segment uses bput() to echo each input char ************
-   TODO: It is for YOUR initial testing only. In YOUR serial port driver, MUST use
-   the echo buffer to echo inputs.
-  ************************************************************************/
+  secho(tty, c); /* insert c into tty->ebuf[] & turn on tx interrupt */ 
+
   bputc(tty->port, c);
   //printf("3\n"); 
   if (c=='\r')
   {
     //printf("3.1\n"); 
     bputc(tty->port, '\n');
+    secho(tty, '\n'); 
   }
-      
+
+  /********* WRITE CODE ***************
+   put char into stty[port]'s inbuf[ ]
+  *************************************/
+   //printf("1\n"); 
+   lock(); 
+   tty->inbuf[tty->inhead++] = c;   // Insert into head
+   tty->inhead %= INBUFLEN;         // Increment head
+   unlock(); 
+   //printf("2\n"); 
+
+  /****** This code segment uses bput() to echo each input char ************
+   TODO: It is for YOUR initial testing only. In YOUR serial port driver, MUST use
+   the echo buffer to echo inputs.
+  ************************************************************************/
+  
+
   //printf("4\n"); 
   V(&tty->inchars);     /* unblock any process waiting in sgetc() */
   //printf("5\n"); 
 }      
 
-     
+
+/* Get charcter from tty->inbuf */  
 int sgetc(struct stty *tty)
 { 
   int c;
   P(&tty->inchars);   /* wait if no input char yet */
 
   // WRITE CODE TO get a char c from tty->inbuf[ ]
-  c = tty->inbuf[tty->intail];  // Get char from inbuf[intail] 
-  tty->intail++; 
+  lock(); 
+  c = tty->inbuf[tty->intail++];  // Get char from inbuf[intail] 
+  tty->intail %= INBUFLEN; 
+  unlock(); 
+
   return(c);
 }
 
 int sgetline(int port, char *line)
 {  
   int i = 0; 
-  char *c; 
-   struct stty *tty = &stty[port];
-   printf("sgetline from port %d\n", port);
+  char *c = NULL; 
+  struct stty *tty = &stty[port];
+  printf("\nsgetline from port %d\n", port);
     
   // WRITE CODE to get a line from serial port
-   c = sgetc(tty); 
-   while(c != '\n') // Newlines are delimited by '\n'
-   {
-    line[i] = c; 
-    i++; 
-   }
-   printf("returning line: %s\n", line); 
+  while(c != '\r') // Newlines are delimited by Enter key 
+  {
+    c = sgetc(tty);     // Get a character from the serial port 
+    *line = c;          // line points to newly captured character
+    ++line;             // Advance line pointer 
+  }
+  line--;               // Decrement line pointer 
+  line = '\0';          // Add null terminator
+  
+  //printf("\nsgetline returning line: %s\n", line); 
 
-   
-
-   return strlen(line);
+  printf("\nsgetline returning %d\n", strlen(line)); 
+  return strlen(line);
 }
 
 
@@ -300,25 +317,33 @@ int do_tx(struct stty *tty)
        V(&tty->outroom);
        return;
   ************************************************************/
-  if(tty->ehead == 0)   // Nothing to output 
+  if((tty->outhead == tty->outtail) && (tty->ehead == tty->etail))    /* the buffer is EMPTY  */ 
   {
-    // Disable tx interrupt
+    //printf("1\n"); 
     disable_tx(tty); 
-    return; 
-  }
-  else if(tty->ehead > 0) // ebuf[] not empty 
-  {
-    // TODO: output a byte from ebuf
-    return; 
-  }
-  else if(tty->outhead > 0) // outbuf[] not empty 
-  {
-    // Output a char from outbuf[]
-    printf("%s\n", tty->outbuf[tty->outhead]); 
-    V(&tty->outroom); 
+    //printf("1.1\n"); 
     return; 
   }
 
+  if(tty->ehead != tty->etail)  /* the echo buffer is not empty */ 
+  {
+    //printf("2\n"); 
+    lock(); 
+    bputc(tty->port, tty->ebuf[tty->ehead++]); /* put a chraracter to the serial port - insert into head */ 
+    tty->ehead %= EBUFLEN; 
+    unlock(); 
+    //printf("3\n"); 
+    return; 
+  }
+
+  //printf("4\n"); 
+  lock(); 
+  bputc(tty->port, tty->outbuf[tty->outtail++]); 
+  tty->outtail %= OUTBUFLEN; 
+  //printf("outtail= %d\n", outtail); 
+  unlock(); 
+
+  V(&tty->outroom); 
   
 }
 
@@ -328,8 +353,8 @@ int sputc(struct stty *tty, int c)
 
     lock();             
     //  WRITE CODE to enter c into outbuf[ ];
-    tty->outbuf[tty->outhead] = c;  // Insert c into outbuf
-    tty->outhead++;   // Increment outhead 
+    tty->outbuf[tty->outhead++] = c;  // Insert c into head
+    tty->outhead %= OUTBUFLEN;   // Increment outhead 
     unlock();
 
     if (!tty->tx_on) 
@@ -342,13 +367,14 @@ int sputline(int port, char *line)
   struct stty *tty = &stty[port];
   char *c; 
   //WRITE CODE to output line to serial port
-  c = &line; 
-  while(c != NULL)
+  c = line; 
+  while(*c != NULL)
   {
-    tty->outbuf[tty->outhead] = c; 
-    tty->outhead++; 
-    c = &line; 
+    bputc(tty->port, *c); 
+    *c++; 
   }
+
+  bputc(tty->port, '\n'); 
 
 }
 
@@ -358,14 +384,34 @@ int sputline(int port, char *line)
 char outline[64];
 int sout(int port, char *z)
 {
-   // WRITE CODE to get a line from Umode and print it to serial port
-   return 0;
+   // WRITE CODE to get a line from Umode and print it to serial port 
+  char c; 
+  int i = 0; 
+  while((c = get_byte(running->uss, z)) != NULL)
+  {
+    z++; 
+    outline[i++] = c; 
+  }
+
+  outline[i] = '\0';         // Add null terminator 
+  sputline(port, outline);   // Output line to serial port 
+  return 0;
 }
 
 char inline[64];
 int sin(int port, char *z)
 {
   // WRITE CODE to get a line from serial port and copy it to Umode
-  //  return length_of_line;
+  int i = 0; 
+  sgetline(port, inline);   // Get line from serial port and store in inline 
+
+  while(i < strlen(inline))
+  {
+    put_byte(inline[i], running->uss, z); 
+    i++; 
+    z++; 
+  }
+
+  return strlen(inline); 
 }
 

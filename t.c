@@ -12,18 +12,18 @@ int procSize = sizeof(PROC);
 *************************************************************/
 
 
-#include "queue.c"
-#include "fork_exec.c"
-#include "wait.c"
-#include "int.c"
+#include "queue.c"      // queue functions 
+#include "fork_exec.c"  // kfork, do_kfork, kexec
+#include "wait.c"       // kwait, kexit
+#include "int.c"        
 #include "pv.c"
-#include "serial.c"   // functions for serial port driver 
+#include "serial.c"     // functions for serial port driver 
 
 
 int body();
 
-char *tname[]={"Mercury", "Venus", "Earth",  "Mars", "Jupiter", 
-               "Saturn",  "Uranus","Neptune"};
+char *tname[]={"Alpha", "Beta", "Gamma",  "Delta", "Epsilon", 
+               "Zeta",  "Eta","Theta"};
 int init()
 {
    int i,j; 
@@ -55,34 +55,45 @@ int init()
    
 int body()
 {
-   char c, CR, buf[64];
-   while(1){
-      printf("=======================================\n");
-      printQueue(readyQueue);      
+  char c, CR, buf[64];
+  while(1)
+  {
+    printf("=======================================\n");
+    printQueue(readyQueue);      
 
-      printf("proc %d %s in Kmode\n", running->pid, running->name);
-      printf("input a command (s|f|u|q|i|o) : ");
-      c=getc(); putc(c); CR=getc(); putc(CR);
-      switch(c){
-          case 's' : printf("\nCalling tswitch()\n"); 
-                      tswitch(); 
-                      printf("\nReturned from tswitch\n"); break;
-          case 'u' : printf("\nProc %d ready to go U mode\n", running->pid);
-                     goUmode(); 
-                     printf("P%d in Umode?\n"); 
-                     break;
-          case 'f':  do_kfork();  break;
-          case 'q' : kexit();   break;
-          case 'i' : iline();   break;
-          case 'o' : oline();   break;
+    printf("P%d (%s) in Kmode\n", running->pid, running->name);
+    printf("input a command (s|f|u|q|i|o) : ");
+    c=getc(); putc(c); CR=getc(); putc(CR);
+    switch(c)
+    {
+      case 's' : 
+        tswitch(); 
+        printf("\nReturned from tswitch\n"); 
+        break;
+      case 'u' : 
+        printf("\nP%d ready to go U mode\n", running->pid);
+        goUmode(); 
+        break;
+      case 'f':  
+        do_kfork();  
+        break;
+      case 'q' : 
+        printf("Attempting to call kexit()\n"); 
+        kexit();   
+        printf("Flag #2\n"); 
+        break;
+      case 'i' : 
+        iline();   
+        break;
+      case 'o' : 
+        oline();   
+        break;
       }
    }
 }
 
-
-
 /***************************************************************
-  myfork(segment) creates a child task and returns the child pid.
+  myfork() creates a child task and returns the child pid.
   When scheduled to run, the child task resumes to body(pid) in 
   K mode. Its U mode environment is set to segment.
 ****************************************************************/
@@ -132,35 +143,35 @@ main()
 
     sinit();    // Initialize serial ports 
 
-    while(1){
+    while(1)
+    {
        if (readyQueue)
-          tswitch();
-        else
-          printf("readyQueue is null\n"); 
+          tswitch(); 
     }
     printf("all dead, happy ending\n");
 }
 
 int scheduler()
 { 
-    printf("\nIn scheduler: running = %d\n", running->pid); 
-    if (running->status == READY)
-    {
-      enqueue(&readyQueue,running);
-    }
+  if (running->status == READY)
+  {
+    enqueue(&readyQueue,running);
+  }
 
-    running = dequeue(&readyQueue);
+  running = dequeue(&readyQueue);
 }
 
 
+/* Output a line to the serial port */ 
 int oline()
 {
   // assume port = 0;
-  sputline(0, "serial line from Kmode\n\r");
+  sputline(0, "serial line from Griffin in Kmode\n\r");
 }
 
 // kline is the circular buffer for serial input and output
 char kline[64];
+/* Input a line from the serial port */ 
 int iline()
 {
   sgetline(0, kline);

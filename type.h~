@@ -16,7 +16,6 @@ typedef unsigned long  u32;
 #define SLEEP     2
 #define ZOMBIE    3
 #define BLOCK     4
-#define P0 	  5 
 
 typedef struct proc{
         struct proc *next;

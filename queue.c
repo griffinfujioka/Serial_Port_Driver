@@ -41,19 +41,19 @@ enqueue(queue, ptr) PROC **queue, *ptr;
 PROC* dequeue(queue) PROC **queue; 
 {
   PROC *p; 
-  printf("\nentering dequeue\n"); 
+  //printf("\nentering dequeue\n"); 
   p = (*queue);
 
   if (p)
   {
-    printf("queue is not empty. dequeue return P%d\n", p->pid); 
+    //printf("queue is not empty. dequeue return P%d\n", p->pid); 
 
     *queue = (*queue)->next;
   }
   else
   {
 
-    printf("dequeue returning NULL \n"); 
+    //printf("dequeue returning NULL \n"); 
   }
 
 
