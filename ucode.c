@@ -81,7 +81,7 @@ int sout()
   int port;
   printf("input port number:[0|1]");
   port = getc()&0x7F - '0';
-  int80(9, port, "serial line from Umode\n");
+  int80(9, port, "serial line Griffin in from Umode\n");
 }
 
 char uline[64];

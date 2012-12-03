@@ -1,7 +1,6 @@
 #define debug 1
 int body(); 
 int kfork(); 
-//int goUmode(); 
 
 /************************************************************
 	 				Fork functions begin

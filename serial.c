@@ -78,37 +78,38 @@ int sinit()
   char *q; 
 
   /* initialize stty[] and serial ports */
-  for (i = 0; i < NR_STTY; i++){
+  for (i = 0; i < NR_STTY; i++)
+  {
     q = p;
 
     printf("sinit : port # %d\n", i);
 
-      t = &stty[i];
+    t = &stty[i];
 
-      /* initialize data structures and pointers */
-      if (i==0)
-          t->port = 0x3F8;    /* COM1 base address */
-      else
-          t->port = 0x2F8;    /* COM2 base address */  
+    /* initialize data structures and pointers */
+    if (i==0)
+      t->port = 0x3F8;    /* COM1 base address */
+    else
+      t->port = 0x2F8;    /* COM2 base address */  
 
-      t->inchars.value  = 0;  t->inchars.queue = 0;
-      t->outroom.value = OUTBUFLEN; t->outroom.queue = 0;
+    t->inchars.value  = 0;  t->inchars.queue = 0;
+    t->outroom.value = OUTBUFLEN; t->outroom.queue = 0;
 
-      t->inhead = t->intail = 0;
-      t->ehead =  t->etail = t->e_count = 0;
-      t->outhead =t->outtail = 0;
+    t->inhead = t->intail = 0;
+    t->ehead =  t->etail = t->e_count = 0;
+    t->outhead =t->outtail = 0;
 
-      t->tx_on = 0;   // Initially tx is off 
+    t->tx_on = 0;   // Initially tx is off 
 
-      // initialize control chars; NOT used in MTX but show how anyway
-      t->ison = t->echo = 1;   /* is on and echoing */
-      t->erase = '\b';
-      t->kill  = '@';
-      t->intr  = (char)0177;  /* del */
-      t->quit  = (char)034;   /* control-C */
-      t->x_on  = (char)021;   /* control-Q */
-      t->x_off = (char)023;   /* control-S */
-      t->eof   = (char)004;   /* control-D */
+    // initialize control chars; NOT used in MTX but show how anyway
+    t->ison = t->echo = 1;   /* is on and echoing */
+    t->erase = '\b';
+    t->kill  = '@';
+    t->intr  = (char)0177;  /* del */
+    t->quit  = (char)034;   /* control-C */
+    t->x_on  = (char)021;   /* control-Q */
+    t->x_off = (char)023;   /* control-S */
+    t->eof   = (char)004;   /* control-D */
 
     lock();  // CLI; no interrupts
 
@@ -162,6 +163,7 @@ int shandler(int port)
    struct stty *t;
    int IntID, LineStatus, ModemStatus, intType, c;
 
+   // (1) Determine which type of interrupt has occured
    t = &stty[port];            /* IRQ 4 interrupt : COM1 = stty[0] */
 
    IntID     = in_byte(t->port+IIR);       /* read InterruptID Reg */
@@ -207,12 +209,21 @@ disable_tx(struct stty *t)
 /******** echo char to RS232 **********/
 int secho(struct stty *tty, int c)
 {
+  // Do I need to handle the case where c=='\n'? 
    /* insert c into ebuf[]; turn on tx interrupt */
+  lock(); 
   tty->ebuf[tty->ehead] = c; 
+  printf("ebuf[%d] = %c\n", tty->ehead, c); 
+  printf("etail = %d\nehead = %d\n", tty->etail, tty->ehead); 
+  tty->ehead++; 
   tty->ehead %= EBUFLEN;   // Increment ehead
+  unlock(); 
 
   /* turn on tx interrupt */ 
-  enable_tx(tty); 
+  if (!tty->tx_on) 
+  {
+    enable_tx(tty);  // Enable tx interecept 
+  } 
 }
 
 /* Receive input from serial port */ 
@@ -225,38 +236,28 @@ int do_rx(struct stty *tty)   /* interrupts already disabled */
 
   secho(tty, c); /* insert c into tty->ebuf[] & turn on tx interrupt */ 
 
-  bputc(tty->port, c);
-  //printf("3\n"); 
+  //bputc(tty->port, c); 
   if (c=='\r')
   {
-    //printf("3.1\n"); 
-    bputc(tty->port, '\n');
+    //bputc(tty->port, '\n');
     secho(tty, '\n'); 
   }
 
   /********* WRITE CODE ***************
    put char into stty[port]'s inbuf[ ]
   *************************************/
-   //printf("1\n"); 
-   lock(); 
-   tty->inbuf[tty->inhead++] = c;   // Insert into head
-   tty->inhead %= INBUFLEN;         // Increment head
-   unlock(); 
-   //printf("2\n"); 
-
-  /****** This code segment uses bput() to echo each input char ************
-   TODO: It is for YOUR initial testing only. In YOUR serial port driver, MUST use
-   the echo buffer to echo inputs.
-  ************************************************************************/
+  lock(); 
+  tty->inbuf[tty->intail] = c;   // Insert into tail
+  tty->intail++; 
+  tty->intail %= INBUFLEN;         // Update tail
+  unlock(); 
   
 
-  //printf("4\n"); 
   V(&tty->inchars);     /* unblock any process waiting in sgetc() */
-  //printf("5\n"); 
 }      
 
 
-/* Get charcter from tty->inbuf */  
+/* Get charcter from tty->inbuf[] */  
 int sgetc(struct stty *tty)
 { 
   int c;
@@ -264,8 +265,9 @@ int sgetc(struct stty *tty)
 
   // WRITE CODE TO get a char c from tty->inbuf[ ]
   lock(); 
-  c = tty->inbuf[tty->intail++];  // Get char from inbuf[intail] 
-  tty->intail %= INBUFLEN; 
+  c = tty->inbuf[tty->inhead];  // Get character from head  
+  tty->inhead++; 
+  tty->inhead %= INBUFLEN;      // Update head
   unlock(); 
 
   return(c);
@@ -274,7 +276,7 @@ int sgetc(struct stty *tty)
 int sgetline(int port, char *line)
 {  
   int i = 0; 
-  char *c = NULL; 
+  char c = NULL; 
   struct stty *tty = &stty[port];
   printf("\nsgetline from port %d\n", port);
     
@@ -284,14 +286,16 @@ int sgetline(int port, char *line)
     c = sgetc(tty);     // Get a character from the serial port 
     *line = c;          // line points to newly captured character
     ++line;             // Advance line pointer 
+    i++; 
   }
   line--;               // Decrement line pointer 
   line = '\0';          // Add null terminator
   
+
   //printf("\nsgetline returning line: %s\n", line); 
 
-  printf("\nsgetline returning %d\n", strlen(line)); 
-  return strlen(line);
+  printf("\nsgetline returning %d\n", i-1); 
+  return i-1;
 }
 
 
@@ -319,27 +323,33 @@ int do_tx(struct stty *tty)
   ************************************************************/
   if((tty->outhead == tty->outtail) && (tty->ehead == tty->etail))    /* the buffer is EMPTY  */ 
   {
-    //printf("1\n"); 
-    disable_tx(tty); 
-    //printf("1.1\n"); 
+    //printf("WARNING: outbuf[] & ebuf[] are both empty!! Disabling tx...\n"); 
+    disable_tx(tty);  
     return; 
   }
 
   if(tty->ehead != tty->etail)  /* the echo buffer is not empty */ 
   {
-    //printf("2\n"); 
     lock(); 
-    bputc(tty->port, tty->ebuf[tty->ehead++]); /* put a chraracter to the serial port - insert into head */ 
-    tty->ehead %= EBUFLEN; 
-    unlock(); 
-    //printf("3\n"); 
+    /*
+    printf("\n1. tty->etail = %d\n", tty->etail); 
+    printf("   tty->ehead = %d\n", tty->ehead); 
+    */ 
+    bputc(tty->port, tty->ebuf[tty->etail]); /* put a chraracter to the serial port - insert into tail */ 
+    tty->etail++; 
+    tty->etail %= EBUFLEN; 
+    /*
+    printf("2. tty->etail = %d\n", tty->etail); 
+    printf("   tty->ehead = %d\n", tty->ehead); 
+    */ 
+    //unlock(); 
     return; 
   }
-
-  //printf("4\n"); 
+ 
   lock(); 
-  bputc(tty->port, tty->outbuf[tty->outtail++]); 
-  tty->outtail %= OUTBUFLEN; 
+  bputc(tty->port, tty->outbuf[tty->outhead]);  /* put a character to the serial port - insert into head */ 
+  tty->outhead++; 
+  tty->outhead %= OUTBUFLEN; 
   //printf("outtail= %d\n", outtail); 
   unlock(); 
 
@@ -352,13 +362,15 @@ int sputc(struct stty *tty, int c)
     P(&tty->outroom);   
 
     lock();             
-    //  WRITE CODE to enter c into outbuf[ ];
-    tty->outbuf[tty->outhead++] = c;  // Insert c into head
-    tty->outhead %= OUTBUFLEN;   // Increment outhead 
+    tty->outbuf[tty->outtail] = c;  // Insert c into tail
+    tty->outtail++; 
+    tty->outtail %= OUTBUFLEN;      // Update tail
     unlock();
 
     if (!tty->tx_on) 
-       enable_tx(tty);  // Enable tx interecept 
+    {
+      enable_tx(tty);  // Enable tx interecept 
+    }
     return(1);
 }
 
